@@ -1,0 +1,8 @@
+# 1. 仮想環境を有効化（行頭に (venv) と出ればOK）
+.\venv\Scripts\Activate.ps1
+
+# 2. アプリのフォルダへ移動
+cd appLaunch_beta
+
+# 3. ランチャーを起動
+python .\main.py

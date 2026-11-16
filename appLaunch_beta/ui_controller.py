@@ -1,40 +1,68 @@
 import sys
+import os
 import math
 import subprocess
+import yaml
 from PyQt6.QtWidgets import QWidget, QPushButton
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QEvent
 from PyQt6.QtGui import QPainter, QColor
 
 class RingMenuWindow(QWidget):
     def __init__(self):
         super().__init__()
         
-        # 1. ウィンドウの基本設定
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |    # 枠なし
-            Qt.WindowType.WindowStaysOnTopHint |   # 常に最前面
-            Qt.WindowType.Tool                     # タスクバーに表示しない
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) # 背景透過
-        self.setFixedSize(400, 400) # メニューの表示領域
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(400, 400)
 
-        # 2. 登録するアプリの設定（名前と実行ファイルのパス）
-        # ※ご自身の環境に合わせてパスを書き換えてみてください
-        self.apps = [
-            {"name": "Notepad", "path": "notepad.exe"},
-            {"name": "Edge", "path": "msedge.exe"},
-            {"name": "Explorer", "path": "explorer.exe"},
-            {"name": "Calc", "path": "calc.exe"},
-            {"name": "Terminal", "path": "wt.exe"},
-            {"name": "Paint", "path": "mspaint.exe"},
-        ]
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
 
+        self.config_file = os.path.join(base_dir, "config.yaml")
         self.buttons = []
+        
+        # 初期読み込みとボタン配置
+        self.apps = self.load_config()
+        self.setup_ring_menu()
+
+    def load_config(self):
+        if not os.path.exists(self.config_file):
+            default_config = {
+                "apps": [
+                    {"name": "Notepad", "path": "notepad.exe"},
+                    {"name": "Edge", "path": "msedge.exe"},
+                    {"name": "Explorer", "path": "explorer.exe"},
+                    {"name": "Calc", "path": "calc.exe"},
+                ]
+            }
+            with open(self.config_file, "w", encoding="utf-8") as f:
+                yaml.dump(default_config, f, allow_unicode=True, sort_keys=False)
+            return default_config["apps"]
+
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            config_data = yaml.safe_load(f)
+            return config_data.get("apps", [])
+
+    # 🌟 追加：設定ファイルを再読み込みしてボタンを作り直す処理
+    def reload_config(self):
+        self.hide()
+        # 今あるボタンを画面から削除してリストを空にする
+        for btn in self.buttons:
+            btn.deleteLater()
+        self.buttons.clear()
+
+        # 最新の config.yaml を読み込んで再配置
+        self.apps = self.load_config()
         self.setup_ring_menu()
 
     def setup_ring_menu(self):
-        """アプリの数に合わせて円形にボタンを配置する"""
-        radius = 120  # 中心からの距離
+        radius = 120
         center_x = self.width() // 2
         center_y = self.height() // 2
 
@@ -42,7 +70,6 @@ class RingMenuWindow(QWidget):
             btn = QPushButton(app["name"], self)
             btn.setFixedSize(80, 40)
             
-            # スタイルを少しActions Ring風に
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: rgba(45, 45, 45, 200);
@@ -55,48 +82,50 @@ class RingMenuWindow(QWidget):
                 }
             """)
 
-            # 角度の計算（真上から時計回り）
-            angle = math.radians(i * (360 / len(self.apps)) - 90)
+            if len(self.apps) > 0:
+                angle = math.radians(i * (360 / len(self.apps)) - 90)
+            else:
+                angle = 0
             
-            # ボタンの中心座標を計算
             x = int(center_x + radius * math.cos(angle) - btn.width() / 2)
             y = int(center_y + radius * math.sin(angle) - btn.height() / 2)
             
             btn.move(x, y)
-            
-            # クリックイベントの登録（引数付きで呼び出すためにlambdaを使用）
             btn.clicked.connect(lambda checked, a=app: self.launch_app(a))
+            btn.show()  # 再読み込み時にも確実に表示されるよう明示
             self.buttons.append(btn)
 
     def launch_app(self, app_info):
-        """アプリケーションを起動する"""
         try:
-            print(f"🚀 Launching: {app_info['name']}")
             subprocess.Popen(app_info['path'], shell=True)
         except Exception as e:
-            print(f"❌ Error: {e}")
-        
-        self.hide() # 起動したらメニューを閉じる
+            print(f"Error: {e}")
+        self.hide()
 
     def show_at_mouse(self, pos):
-        """マウス位置にウィンドウを移動して表示"""
+        if self.isVisible():
+            self.hide()
+            return
+
         target_x = int(pos[0] - self.width() / 2)
         target_y = int(pos[1] - self.height() / 2)
         self.move(target_x, target_y)
         self.show()
         self.activateWindow()
 
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.ActivationChange:
+            if not self.isActiveWindow():
+                self.hide()
+        super().changeEvent(event)
+
     def paintEvent(self, event):
-        """中央の見た目を描画"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 中心に薄いガイドライン用の円を描画
         painter.setPen(QColor(255, 255, 255, 40))
         painter.setBrush(QColor(255, 255, 255, 10))
         painter.drawEllipse(self.width()//2 - 60, self.height()//2 - 60, 120, 120)
 
     def keyPressEvent(self, event):
-        """Escキーでメニューを閉じる"""
         if event.key() == Qt.Key.Key_Escape:
             self.hide()
